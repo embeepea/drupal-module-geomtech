@@ -1,0 +1,165 @@
+<?php // for emacs: -*- mode: php;-*-
+// $Id$
+
+/**
+ * Implementation of hook_menu().
+ */
+function geomtech_menu() {
+  $items['vars/latest/%'] = array(
+    'title'           => 'VARS LATEST SERVICE URI',
+    'type'            => MENU_CALLBACK,
+    'page callback'   => '_geomtech_vars_latest_controller',
+    'page arguments'  => array(2),
+    'access callback' => TRUE,
+  );
+  $items['vars/submit'] = array(
+    'title'           => 'VARS SUBMIT SERVICE URI',
+    'type'            => MENU_CALLBACK,
+    'page callback'   => '_geomtech_vars_submit_controller',
+/*  'page arguments'  => array(2), */
+    'access callback' => TRUE,
+  );
+  $items['vars/get/%'] = array(
+# defaults to using -9999 as missing value
+    'title'           => 'VARS GET SERVICE URI',
+    'type'            => MENU_CALLBACK,
+    'page callback'   => '_geomtech_vars_get_controller',
+    'page arguments'  => array(2),
+    'access callback' => TRUE,
+  );
+  $items['vars/getm/%'] = array(
+# call like
+#    /vars/getm/-12345/1,2,3
+# to request vars 1,2,3 with -12345 as the missing value
+    'title'           => 'VARS GETM SERVICE URI',
+    'type'            => MENU_CALLBACK,
+    'page callback'   => '_geomtech_vars_getm_controller',
+    'page arguments'  => array(2),
+    'access callback' => TRUE,
+  );
+  return $items;
+}
+
+function _geomtech_vars_getm_controller($missingvalue, $ids, $times='', $buffers='') {
+  _geomtech_vars_get_controller($ids, $times, $buffers, $missingvalue);
+}
+
+function _geomtech_vars_get_controller($ids, $times='', $buffers='', $missingvalue=-9999) {
+  header('Content-type: text/plain');
+
+  $idlist = preg_split("/\s*,\s*/", $ids);
+  $numvalues = count($idlist);
+  $idinds = array();
+  for ($i=0; $i<$numvalues; ++$i) {
+    $idinds[$idlist[$i]] = $i;
+  }
+
+  # idinds is now a hash of the indices of the ids in the $ids list; the key is the id value from the list,
+  # and the value is its (0-based) position in the list
+
+  ###
+  ### modify the passed-in times by the timezone offset to convert to UTC
+  ### before constructing SQL query
+  ###
+  $offset = date_offset_get( new DateTime() );
+  $timelist = preg_split("/\s*,\s*/", $times);
+  $t0 = strtotime($timelist[0]) - $offset;
+  $t1 = strtotime($timelist[1]) - $offset;
+  $time0 = date("YmdHi00", $t0);
+  $time1 = date("YmdHi00", $t1);
+
+  $r = db_query(" select varid,datetime,value "
+		.  "from {geomtech_var_value} "
+		. "where datetime>='%s' "
+		.   "and datetime<='%s' "
+		.   "and varid in (%s) "
+		. "order by datetime,varid",
+		$time0, $time1, $ids
+		);
+
+  $current_datetime = "";
+  $current_values = array_fill(0,$numvalues,$missingvalue);
+  $have_current_values = 0;
+  while ($obj=db_fetch_object($r)) {
+    $datetime = $obj->datetime;
+    if ($datetime!=$current_datetime) {
+      if ($have_current_values) {
+	_geomtech_get_controller_print_values($current_datetime, $offset, $current_values);
+	$have_current_values = 0;
+      }
+      $current_datetime = $datetime;
+      $current_values = array_fill(0,$numvalues,$missingvalue);
+    }
+    $current_values[$idinds[$obj->varid]] = $obj->value;
+    $have_current_values = 1;
+  }
+  if ($have_current_values) {
+    _geomtech_get_controller_print_values($current_datetime, $offset, $current_values);
+  }
+  exit();
+}
+
+function _geomtech_get_controller_print_values($datetime, $offset, $values) {
+  if (count($values)>0) {
+    printf("%s,%s\n", date("YmdHi", strtotime($datetime) + $offset), join(",", $values));
+  }
+}
+
+function _geomtech_vars_latest_controller($ids) {
+  header('Content-type: text/plain');
+
+  $idlist = preg_split("/\s*,\s*/", $ids);
+  $idinds = array();
+  $values = array();
+  for ($i=0; $i<count($idlist); ++$i) {
+    $values[$i] = '';
+    $idinds[$idlist[$i]] = $i;
+  }
+  # idinds is now a hash of the indices of the ids in the $ids list; the key is the id value from the list,
+  # and the value is its (0-based) position in the list
+
+  $r = db_query("select varid,max(datetime) as datetime from {geomtech_var_value} where varid in (%s) group by varid", $ids);
+  while ($obj=db_fetch_object($r)) {
+    $values[$idinds[$obj->varid]] = _geomtech_mysql_unformat_datetime($obj->datetime);
+  }
+  printf("%s\n", join(",", $values));
+  exit();
+}
+
+function _geomtech_vars_submit_controller($idlist) {
+  header('Content-type: text/plain');
+
+  $datalines = preg_split("/\s*\n\s*/", $_REQUEST['data']);
+  for ($i=0; $i<count($datalines); ++$i) {
+    $fields = preg_split("/\s*,\s*/", $datalines[$i]);
+    $datetime = $fields[0];
+    $varid    = $fields[1];
+    $value    = $fields[2];
+    db_query("insert into {geomtech_var_value} (varid,datetime,value) values (%d,'%s',%f)",
+             $varid, _geomtech_mysql_format_datetime($datetime), $value);
+  }
+  exit();
+}
+
+function _geomtech_mysql_format_datetime($datetime) {
+  $num_zeros_needed = 14 - strlen($datetime);
+  if ($num_zeros_needed) {
+    $datetime .= str_repeat("0", $num_zeros_needed);
+  }
+  return $datetime;
+}
+
+function _geomtech_mysql_unformat_datetime($datetime) {
+  return substr(preg_replace('/[ :-]+/', "", $datetime), 0, 12);
+}
+
+function _geomtech_resumexml_controller() {
+  views_include('view');
+  $view = view::load('experience_list', $reset);
+
+  header('Content-type: text/plain');
+
+  print_r($view);
+
+  exit();
+}

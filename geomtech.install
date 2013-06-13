@@ -1,0 +1,52 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * Geomtech module's install and uninstall code.
+ */
+
+/**
+ * Implementation of hook_install().
+ */
+function geomtech_install() {
+  drupal_install_schema('geomtech');
+  db_query("insert into {geomtech_var} (varid,name,description) values (%d,'%s','%s')",
+           1, "HOME_TEMP_OUTDOOR", "outdoor temp measured from front porch at 70 Clay View Dr, one-wire sensor: 265F43510000009B");
+
+  db_query("insert into {geomtech_var} (varid,name,description) values (%d,'%s','%s')",
+           2, "HOME_HUMID_OUTDOOR", "outdoor humidity measured from front porch at 70 Clay View Dr, one-wire sensor: 265F43510000009B");
+  db_query("insert into {geomtech_var} (varid,name,description) values (%d,'%s','%s')",
+           3, "HOME_TEMP_OFFICE", "indoor temp measured from upstairs office at 70 Clay View Dr, one-wire sensor: 26A242510000006E");
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function geomtech_uninstall() {
+  drupal_uninstall_schema('geomtech');
+}
+
+/**
+ * Implementation of hook_schema().
+ */
+function geomtech_schema() {
+  $schema['geomtech_var'] = array(
+    'fields' => array(
+      'varid'       => array('type' => 'int',      'size' => 'small',  'unsigned' => TRUE,     'not null' => TRUE),
+      'name'        => array('type' => 'text',     'size' => 'tiny',                           'not null' => TRUE),
+      'description' => array('type' => 'text',     'size' => 'medium',                         'not null' => TRUE, 'default' => ''),
+    ),
+    'primary key' => array('varid'),
+  );
+  $schema['geomtech_var_value'] = array(
+    'fields' => array(
+      'varid'       => array('type' => 'int',      'size' => 'small',  'unsigned' => TRUE,     'not null' => TRUE),
+      'datetime'    => array('type' => 'datetime', 'size' => 'normal',                         'not null' => TRUE),
+      'value'       => array('type' => 'float',    'size' => 'big',                            'not null' => TRUE),
+    ),
+    'primary key' => array('varid', 'datetime'),
+  );
+
+  return $schema;
+}

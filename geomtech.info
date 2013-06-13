@@ -1,0 +1,5 @@
+; $Id$
+name = Geomtech
+description = "Provides customizations for geomtech.com site"
+core = 6.x
+version = "6.x-trunk"
